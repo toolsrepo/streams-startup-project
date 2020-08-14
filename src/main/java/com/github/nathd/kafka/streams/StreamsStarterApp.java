@@ -18,7 +18,6 @@ import java.util.Properties;
 @Slf4j
 public class StreamsStarterApp {
 
-
     public Topology createTopology() {
         StreamsBuilder builder = new StreamsBuilder();
         KStream<String, String> wordCountInput = builder.stream("word-count-input");
