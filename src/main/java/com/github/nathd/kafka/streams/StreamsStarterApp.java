@@ -1,66 +1,55 @@
 package com.github.nathd.kafka.streams;
 
+import com.github.nathd.kafka.streams.example.ColorCountStream;
+import com.github.nathd.kafka.streams.example.WordCountStream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
-import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.Topology;
-import org.apache.kafka.streams.kstream.KStream;
-import org.apache.kafka.streams.kstream.KTable;
-import org.apache.kafka.streams.kstream.Named;
-import org.apache.kafka.streams.kstream.Produced;
 
-import java.util.Arrays;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Properties;
 
 @Slf4j
 public class StreamsStarterApp {
 
-    public Topology createTopology() {
-        StreamsBuilder builder = new StreamsBuilder();
-        KStream<String, String> wordCountInput = builder.stream("word-count-input");
+    public static final String BOOTSTRAP_SERVERS = "localhost:9092";
 
-        KTable<String, Long> wordCounts = wordCountInput.mapValues(value -> value.toLowerCase())
-                .flatMapValues(lowerCasedValue -> Arrays.asList(lowerCasedValue.split(" ")))
-                .selectKey((ignoredKey, word) -> word)
-                .groupByKey()
-                .count(Named.as("Counts"));
-
-        wordCounts.toStream().to("word-count-output", Produced.with(Serdes.String(), Serdes.Long()));
-
-        return builder.build();
-    }
-
-    public static void main(String[] args) {
+    public static Properties commonConfig() {
         Properties config = new Properties();
-        config.put(StreamsConfig.APPLICATION_ID_CONFIG, "streams-starter-app");
-        config.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        config.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG,BOOTSTRAP_SERVERS);
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         config.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         config.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
 
-        StreamsStarterApp streamsStarterApp = new StreamsStarterApp();
+        // we disable the cache to demonstrate all the "steps" involved in the transformation - not recommended in prod
+        config.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "0");
 
-        KafkaStreams streams = new KafkaStreams(streamsStarterApp.createTopology(), config);
-        streams.start();
+        return config;
+    }
 
-        log.info("Streams={}", streams);
+    public static void main(String[] args) {
+        List<KafkaStreams> streamsList = new LinkedList<>();
+        WordCountStream wordCountStream = new WordCountStream();
+        ColorCountStream colorCountStream = new ColorCountStream();
 
-        // shutdown hook to correctly close the streams application
-        Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
+//        streamsList.add(new KafkaStreams(wordCountStream.topology(), wordCountStream.config()));
+        streamsList.add(new KafkaStreams(colorCountStream.topology(), colorCountStream.config()));
 
-        // Update:
-        // print the topology every 10 seconds for learning purposes
-        while(true){
-            streams.localThreadsMetadata().forEach(data -> log.info("Topology={}", data));
-            try {
-                Thread.sleep(5000);
-            } catch (InterruptedException e) {
-                break;
-            }
-        }
+        streamsList.forEach(streams -> {
+            // only do this in dev - not in prod
+            streams.cleanUp();
+            streams.start();
+
+            // print the topology
+            streams.localThreadsMetadata().forEach(data -> log.info(data.toString()));
+
+            // shutdown hook to correctly close the kafkaStreamsWordCount application
+            Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
+        } );
+
     }
 
 }
